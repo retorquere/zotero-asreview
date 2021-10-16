@@ -1,0 +1,48 @@
+{
+  "name": "zotero-asreview",
+  "version": "0.0.1",
+  "description": "Show ASReview rankings in Zotero",
+  "scripts": {
+    "lint": "eslint . --ext .ts --cache --cache-location .eslintcache/",
+    "prebuild": "npm run lint",
+    "build": "tsc --noEmit && node esbuild.js",
+    "postbuild": "zotero-plugin-zipup build zotero-asreview",
+    "release": "zotero-plugin-release",
+    "postversion": "git push --follow-tags"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/retorquere/zotero-asreview.git"
+  },
+  "author": {
+    "name": "Emiliano Heyns",
+    "email": "emiliano.heyns@han.nl"
+  },
+  "bugs": {
+    "url": "https://github.com/retorquere/zotero-asreview/issues"
+  },
+  "homepage": "https://github.com/retorquere/zotero-asreview",
+  "dependencies": {
+    "@types/mocha": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^5.0.0",
+    "@typescript-eslint/parser": "^5.0.0",
+    "esbuild": "^0.13.6",
+    "eslint": "^8.0.1",
+    "eslint-plugin-import": "^2.25.2",
+    "eslint-plugin-prefer-arrow": "^1.2.3",
+    "mkdirp": "^1.0.4",
+    "rimraf": "^3.0.2",
+    "ts-node": "^10.3.0",
+    "typescript": "^4.4.4",
+    "zotero-plugin": "^1.0.62"
+  },
+  "xpi": {
+    "name": "Asreview for Zotero",
+    "updateLink": "https://github.com/retorquere/zotero-asreview/releases/download/v{version}/zotero-asreview-{version}.xpi",
+    "releaseURL": "https://github.com/retorquere/zotero-asreview/releases/download/release/"
+  },
+  "devDependencies": {
+    "bluebird": "^3.7.2",
+    "papaparse": "^5.3.1"
+  }
+}

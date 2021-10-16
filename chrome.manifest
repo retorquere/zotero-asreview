@@ -1,0 +1,5 @@
+content	zotero-asreview				content/
+locale	zotero-asreview	en-US		locale/en-US/
+skin	zotero-asreview	default		skin/
+
+overlay	chrome://zotero/content/zoteroPane.xul	chrome://zotero-asreview/content/zotero-asreview.xul

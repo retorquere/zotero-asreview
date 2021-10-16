@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="chrome://zotero-asreview/skin/overlay.css" type="text/css"?>
+<!DOCTYPE window SYSTEM "chrome://zotero-asreview/locale/zotero-asreview.dtd">
+
+<overlay id="zotero-asreview-overlay" xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+  <script>
+    var globals = Function('return this')();
+    var zotero_asreview_zoteropane = null;
+  </script>
+
+  <treecols id="zotero-items-columns-header">
+    <treecol
+      id="zotero-items-column-asreview"
+      label="&ZoteroPane.column.asreview;"
+      flex="1"
+      insertafter="zotero-items-column-title"
+      zotero-persist="width ordinal hidden sortActive sortDirection"
+    />
+  </treecols>
+	<!-- Include the main extension logic -->
+  <script src="chrome://zotero/content/include.js"/>
+  <script src="chrome://zotero-asreview/content/zotero-asreview.js"/>
+  <script>
+    window.addEventListener('load', async function() {
+      try {
+        Zotero.debug('zotero-asreview startup')
+        await Zotero.ASReview.load(globals)
+        Zotero.debug('zotero-asreview started')
+      } catch (err) {
+        Zotero.debug(`zotero-asreview ZoteroPane overlay error: ${err.message}\n${err.stack ||''}`)
+      }
+    })
+  </script>
+</overlay>
