@@ -1,5 +1,8 @@
 name: release
 
+on:
+  push: null
+
 jobs:
   release:
     runs-on: ubuntu-latest
