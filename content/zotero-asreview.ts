@@ -18,20 +18,6 @@ function patch(object, method, patcher) {
   object[method][monkey_patch_marker] = true
 }
 
-patch(Zotero.Item.prototype, 'getField', original => function Zotero_Item_prototype_getField(field: string) {
-  Zotero.debug(`getField: ${field}`)
-  try {
-    if (field === 'asreview') return celltext(this)
-  }
-  catch (err) {
-    Zotero.debug(`monkey-patched getField: ${err.message}`)
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-  return original.apply(this, arguments) as string // eslint-disable-line prefer-rest-params
-})
-
-
 class Deferred<ReturnType> {
   public promise: BluebirdPromise<ReturnType>
   public resolve: (v: ReturnType) => void
@@ -52,14 +38,28 @@ class Deferred<ReturnType> {
 const ready = new Deferred<boolean>()
 
 function celltext(item): string {
+  if (!item.isRegularItem()) return ''
+
   if (ready.promise.isPending()) return '\u231B'
   const collection = ZoteroPane_Local.getSelectedCollection()
   if (!collection) return ''
-  const rankings = Zotero.ASReview.ranking[collection.id]
-  if (!rankings || !item.isRegularItem()) return ''
-  const ranking = rankings[item.id]
+
+  const ranking = Zotero.ASReview.ranking[collection.id]?.[item.id]
   return typeof ranking === 'undefined' ? '' : `${ranking}`
 }
+
+patch(Zotero.Item.prototype, 'getField', original => function Zotero_Item_prototype_getField(field: string) {
+  Zotero.debug(`getField: ${field}`)
+  try {
+    if (field === 'asreview') return celltext(this)
+  }
+  catch (err) {
+    Zotero.debug(`monkey-patched getField: ${err.message}`)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+  return original.apply(this, arguments) as string // eslint-disable-line prefer-rest-params
+})
 
 if (typeof Zotero.ItemTreeView === 'undefined') {
   const itemTree = require('zotero/itemTree')
