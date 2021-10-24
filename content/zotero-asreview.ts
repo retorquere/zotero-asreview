@@ -6,16 +6,33 @@ import * as csv from 'papaparse'
 import type BluebirdPromise from 'bluebird'
 import * as l10n from './l10n'
 
+const ranking_attachment = 'asreview.csv'
+
 const monkey_patch_marker = 'ASReviewMonkeyPatched'
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function patch(object, method, patcher) {
+  Zotero.debug(`asreview: patching ${method}`)
   if (object[method][monkey_patch_marker]) return
   object[method] = patcher(object[method])
   object[method][monkey_patch_marker] = true
 }
 
-export class Deferred<ReturnType> {
+patch(Zotero.Item.prototype, 'getField', original => function Zotero_Item_prototype_getField(field: string) {
+  Zotero.debug(`getField: ${field}`)
+  try {
+    if (field === 'asreview') return celltext(this)
+  }
+  catch (err) {
+    Zotero.debug(`monkey-patched getField: ${err.message}`)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+  return original.apply(this, arguments) as string // eslint-disable-line prefer-rest-params
+})
+
+
+class Deferred<ReturnType> {
   public promise: BluebirdPromise<ReturnType>
   public resolve: (v: ReturnType) => void
   public reject: (e: any) => void
@@ -32,7 +49,10 @@ export class Deferred<ReturnType> {
   }
 }
 
+const ready = new Deferred<boolean>()
+
 function celltext(item): string {
+  if (ready.promise.isPending()) return '\u231B'
   const collection = ZoteroPane_Local.getSelectedCollection()
   if (!collection) return ''
   const rankings = Zotero.ASReview.ranking[collection.id]
@@ -84,10 +104,10 @@ else {
 
     const item = this.getRow(row).ref
 
-    if (Zotero.ASReview.ready.isPending()) {
+    if (ready.promise.isPending()) {
       if (!itemTreeViewWaiting[item.id]) {
         itemTreeViewWaiting[item.id] = true
-        Zotero.ASReview.ready.then(() => {
+        ready.promise.then(() => {
           this._treebox.invalidateRow(row)
         })
       }
@@ -104,9 +124,15 @@ type Ranking = {
   rank: Record<number, number> // itemID -> ranking
 }
 
+type ASReviewRow = {
+  issn: string
+  doi: string
+  asreview_ranking: number
+}
+
 class ASReview { // tslint:disable-line:variable-name
   public ranking: Record<number, Ranking> = {} // collectionID -> ranking
-  public ready: BluebirdPromise<boolean>
+  public ready: BluebirdPromise<boolean> = ready.promise
 
   private initialized = false
   private globals: Record<string, any>
@@ -119,74 +145,117 @@ class ASReview { // tslint:disable-line:variable-name
     return (item.getField(field) as string) || (item.getField('extra') as string)?.split('\n').find((line: string) => line.startsWith(prefix))?.replace(prefix, '') || ''
   }
 
-  async add(collectionID, rankingID): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/require-await
+  public async load(globals: Record<string, any>): Promise<void> {
+    this.globals = globals
+
+    Zotero.debug('asreview: load')
+    if (this.initialized) return
+    this.initialized = true
+    Zotero.debug('asreview: fresh load')
+    await Zotero.Schema.schemaUpdatePromise
+    Zotero.debug('asreview: zotero ready')
+
+    const s = new Zotero.Search()
+    s.addCondition('title', 'is', ranking_attachment, true)
+    s.addCondition('itemType', 'is', 'attachment', true)
+    const ids = (await s.search()) || []
+    const items = (ids.length ? await Zotero.Items.getAsync(ids) : []).filter(item => !item.parentKey)
+    for (const item of items) {
+      await this.updateItem(item)
+    }
+
+    ready.resolve(true)
+  }
+
+  async parse(item): Promise<{ updated?: number, rows: ASReviewRow[]}> {
+    if (!item) return { rows: [] }
+
+    const path = item.getAttachmentPath()
     try {
-      const collection = await Zotero.Collections.getAsync(collectionID)
-
-      let ranking = await Zotero.Items.get(rankingID)
-      if (!ranking) return (Zotero.debug(`attachment ${ranking.itemID} does not exist`) as void)
-      const path = ranking.getAttachmentPath()
-      ranking = (await OS.File.exists(path)) ? (await OS.File.open(path)) : null
-      if (!ranking) return (Zotero.debug(`attachment ${path} does not exist`) as void)
-
-      ranking = await OS.File.open(path)
-      const stat = await ranking.stat()
-      const updated = stat.lastModificationDate.getTime()
-
-      if (this.ranking[collectionID]?.updated === updated) return
-
-      this.ranking[collectionID] = {
-        updated,
-        rank: {},
-      }
-
+      const stat = await OS.File.stat(path)
       const content = this.decoder.decode(await OS.File.read(path) as BufferSource)
       const delimiter = csv.parse(content.split('\n')[0]).meta.delimiter // papaparse autodetection is wonky
-      const data = csv.parse(content, {
+      const rows = csv.parse(content, {
         delimiter,
         header: true,
         dynamicTyping: true,
       })
+      return { updated: stat.lastModificationDate.getTime(), rows }
+    }
+    catch (err) {
+      Zotero.debug((err instanceof OS.File.Error && err.becauseNoSuchFile) ? `path ${path} does not exist` : `${path}: ${err.message}`)
+    }
+
+    return { rows: [] }
+  }
+
+  async updateCollection(collectionID) {
+    const collection = await Zotero.Collections.getAsync(collectionID)
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    const ranking = await this.parse(collection ? collection.getChildItems().find(item => item.isAttachment() && item.getField('title') === ranking_attachment) : null)
+
+    if (!ranking.rows.length) {
+      delete this.ranking[collectionID]
+    }
+    else if (this.ranking[collectionID]?.updated !== ranking.updated) {
+      this.ranking[collectionID] = {
+        updated: ranking.updated,
+        rank: {},
+      }
 
       for (const item of collection.getChildItems()) {
         if (!item.isRegularItem()) continue
         const issn = this.get(item, 'ISSN')
         const doi = this.get(item, 'DOI').replace(/^https?:\/\/doi.org\//i, '')
-        ranking = data.data.find(rank => rank.doi === doi || rank.issn === issn)?.asreview_ranking
-        if (typeof ranking !== 'undefined') this.ranking[collectionID].rank[item.itemID] = ranking
+        const rank = ranking.rows.find(row => row.doi === doi || row.issn === issn)?.asreview_ranking
+        if (typeof rank !== 'undefined') this.ranking[collectionID].rank[item.itemID] = rank
       }
     }
-    catch (err) {
-      Zotero.debug(err.message)
+  }
+
+  async updateItem(item) {
+    if (!item) return
+    if (!item.isAttachment() || item.getField('title') !== ranking_attachment) return
+
+    for (const collectionID of item.getCollections()) {
+      await this.updateCollection(collectionID)
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
-  public async load(globals: Record<string, any>): Promise<void> {
-    this.globals = globals
-    if (this.initialized) return
-    this.initialized = true
-
-    const ready = new Deferred<boolean>()
-    this.ready = ready.promise
-
-    const ranking_attachment = 'asreview.csv'
-    const rankings = `
-      SELECT ci.collectionID, MAX(i.itemID) as itemID
-      FROM items i
-      JOIN itemAttachments ia ON i.itemID = ia.itemID AND ia.parentItemID IS NULL 
-      JOIN itemData id ON i.itemID = i.itemID 
-      JOIN itemDataValues idv ON idv.valueID = id.valueID AND idv.value = '${ranking_attachment}'
-      JOIN fields f on f.fieldID = id.fieldID AND f.fieldName = 'title'
-      JOIN collectionItems ci ON i.itemID = ci.itemID
-      GROUP BY ci.collectionID
-      `.replace(/\n/g, ' ')
-    for (const ranking of await Zotero.DB.queryAsync(rankings)) {
-      await this.add(ranking.collectionID, ranking.itemID)
-    }
-
-    ready.resolve(true)
-  }
 }
 
 Zotero.ASReview = new ASReview
+
+function notify(event: string, handler: any) {
+  Zotero.Notifier.registerObserver({
+    // eslint-disable-next-line prefer-arrow/prefer-arrow-functions
+    async notify() {
+      await ready.promise
+      handler.apply(null, arguments) // eslint-disable-line prefer-spread, prefer-rest-params
+    },
+  }, [event], 'ASReview', 1)
+}
+
+notify('item', async (action: string, _type: string, ids: number[]) => {
+  if (action !== 'modify') return
+
+  for (const ranking of await Zotero.Items.getAsync(ids)) {
+    await Zotero.ASReview.updateItem(ranking)
+  }
+})
+
+notify('collection', async (event: string, _type: any, ids: number[]) => {
+  for (const collectionID of ids) {
+    await Zotero.ASReview.updateCollection(collectionID)
+  }
+})
+
+notify('collection-item', async (_event: any, _type: string, collection_items: string[]) => {
+  for (const collection_item of collection_items) {
+    const collectionID = parseInt(collection_item.replace(/-.*/, ''))
+    if (!isNaN(collectionID)) {
+      await Zotero.ASReview.updateCollection(collectionID)
+    }
+  }
+})

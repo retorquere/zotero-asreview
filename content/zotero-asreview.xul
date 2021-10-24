@@ -3,11 +3,6 @@
 <!DOCTYPE window SYSTEM "chrome://zotero-asreview/locale/zotero-asreview.dtd">
 
 <overlay id="zotero-asreview-overlay" xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
-  <script>
-    var globals = Function('return this')();
-    var zotero_asreview_zoteropane = null;
-  </script>
-
   <treecols id="zotero-items-columns-header">
     <treecol
       id="zotero-items-column-asreview"
@@ -17,10 +12,14 @@
       zotero-persist="width ordinal hidden sortActive sortDirection"
     />
   </treecols>
-	<!-- Include the main extension logic -->
+
   <script src="chrome://zotero/content/include.js"/>
   <script src="chrome://zotero-asreview/content/zotero-asreview.js"/>
   <script>
+    Zotero.debug('zotero-asreview overlay')
+    var globals = Function('return this')();
+    var zotero_asreview_zoteropane = null;
+
     window.addEventListener('load', async function() {
       try {
         Zotero.debug('zotero-asreview startup')

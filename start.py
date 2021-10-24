@@ -6,6 +6,7 @@ import pathlib
 import configparser
 from lxml import etree
 import subprocess
+import shlex
 
 def install_proxy(xpi, profile):
   print(f'installing {xpi}')
@@ -46,8 +47,9 @@ print(profile)
 def run(cmd):
   if type(cmd) == str:
     cmd = cmd.split(' ')
+  print('$', ' '.join([shlex.quote(x) for x in cmd]))
   print(subprocess.run(cmd, stdout=subprocess.PIPE).stdout.decode('utf-8'))
 
 run('npm run build')
 install_proxy('build', profile)
-run('/Applications/Zotero.app/Contents/MacOS/zotero -P BBTZ5TEST -datadir profile -purgecaches -jsconsole -ZoteroDebugText > ~/.BBTZ5TEST.log &
+run('/Applications/Zotero.app/Contents/MacOS/zotero -P BBTZ5TEST -datadir profile -purgecaches -jsconsole -ZoteroDebugText > ~/.BBTZ5TEST.log &')

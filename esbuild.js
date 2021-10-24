@@ -12,7 +12,7 @@ async function build() {
     format: 'esm',
     target: ['firefox60'],
     entryPoints: [ 'content/zotero-asreview.ts' ],
-    banner: { js: 'if (!Zotero.Asreview) {\n' },
+    banner: { js: 'if (!Zotero.ASReview) {\n' },
     outdir: 'build/content',
     footer: { js: '\n}' },
     external: [
