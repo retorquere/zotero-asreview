@@ -44,17 +44,19 @@ function celltext(item): string {
   const collection = ZoteroPane_Local.getSelectedCollection()
   if (!collection) return ''
 
-  const ranking = Zotero.ASReview.ranking[collection.id]?.[item.id]
-  return typeof ranking === 'undefined' ? '' : `${ranking}`
+  const rankings = Zotero.ASReview.ranking[collection.id]
+  if (!rankings) return ''
+  const ranking = rankings.rank[item.id]
+
+  return typeof ranking === 'undefined' ? '' : `${ranking}`.padStart(5, ' ') // eslint-disable-line @typescript-eslint/no-magic-numbers
 }
 
 patch(Zotero.Item.prototype, 'getField', original => function Zotero_Item_prototype_getField(field: string) {
-  Zotero.debug(`getField: ${field}`)
   try {
     if (field === 'asreview') return celltext(this)
   }
   catch (err) {
-    Zotero.debug(`monkey-patched getField: ${err.message}`)
+    Zotero.debug(`asreview monkey-patched getField: ${err.message}`)
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
@@ -149,18 +151,19 @@ class ASReview { // tslint:disable-line:variable-name
   public async load(globals: Record<string, any>): Promise<void> {
     this.globals = globals
 
-    Zotero.debug('asreview: load')
+    this.log('load')
     if (this.initialized) return
     this.initialized = true
-    Zotero.debug('asreview: fresh load')
+    this.log('fresh load')
     await Zotero.Schema.schemaUpdatePromise
-    Zotero.debug('asreview: zotero ready')
+    this.log('zotero ready')
 
     const s = new Zotero.Search()
     s.addCondition('title', 'is', ranking_attachment, true)
     s.addCondition('itemType', 'is', 'attachment', true)
     const ids = (await s.search()) || []
     const items = (ids.length ? await Zotero.Items.getAsync(ids) : []).filter(item => !item.parentKey)
+    this.log(`startup: ${items.length} rankings`)
     for (const item of items) {
       await this.updateItem(item)
     }
@@ -168,29 +171,37 @@ class ASReview { // tslint:disable-line:variable-name
     ready.resolve(true)
   }
 
-  async parse(item): Promise<{ updated?: number, rows: ASReviewRow[]}> {
-    if (!item) return { rows: [] }
+  log(msg: string) {
+    Zotero.debug(`asreview: ${msg}`)
+  }
 
-    const path = item.getAttachmentPath()
+  async parse(item): Promise<{ updated?: number, rows: ASReviewRow[]}> {
+    if (!item || !item.isAttachment()) return { rows: [] }
+
+    const path = item.getFilePath()
+    this.log(`parsing ${path}`)
     try {
       const stat = await OS.File.stat(path)
       const content = this.decoder.decode(await OS.File.read(path) as BufferSource)
       const delimiter = csv.parse(content.split('\n')[0]).meta.delimiter // papaparse autodetection is wonky
-      const rows = csv.parse(content, {
+      const rankings = csv.parse(content, {
         delimiter,
         header: true,
         dynamicTyping: true,
       })
-      return { updated: stat.lastModificationDate.getTime(), rows }
+      this.log(`parsing ${path}: ${rankings.data.length} rows`)
+
+      return { updated: stat.lastModificationDate.getTime(), rows: rankings.data }
     }
     catch (err) {
-      Zotero.debug((err instanceof OS.File.Error && err.becauseNoSuchFile) ? `path ${path} does not exist` : `${path}: ${err.message}`)
+      this.log((err instanceof OS.File.Error && err.becauseNoSuchFile) ? `path ${path} does not exist` : `${path}: ${err.message}`)
     }
 
     return { rows: [] }
   }
 
   async updateCollection(collectionID) {
+    this.log(`updating collection ${collectionID}`)
     const collection = await Zotero.Collections.getAsync(collectionID)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     const ranking = await this.parse(collection ? collection.getChildItems().find(item => item.isAttachment() && item.getField('title') === ranking_attachment) : null)
@@ -208,7 +219,7 @@ class ASReview { // tslint:disable-line:variable-name
         if (!item.isRegularItem()) continue
         const issn = this.get(item, 'ISSN')
         const doi = this.get(item, 'DOI').replace(/^https?:\/\/doi.org\//i, '')
-        const rank = ranking.rows.find(row => row.doi === doi || row.issn === issn)?.asreview_ranking
+        const rank = (ranking.rows.find(row => row.doi === doi) || ranking.rows.find(row => row.issn === issn))?.asreview_ranking
         if (typeof rank !== 'undefined') this.ranking[collectionID].rank[item.itemID] = rank
       }
     }
@@ -218,6 +229,7 @@ class ASReview { // tslint:disable-line:variable-name
     if (!item) return
     if (!item.isAttachment() || item.getField('title') !== ranking_attachment) return
 
+    this.log(`updating item ${item.id}`)
     for (const collectionID of item.getCollections()) {
       await this.updateCollection(collectionID)
     }
@@ -231,6 +243,7 @@ function notify(event: string, handler: any) {
   Zotero.Notifier.registerObserver({
     // eslint-disable-next-line prefer-arrow/prefer-arrow-functions
     async notify() {
+      Zotero.debug(`asreview: ${event} event`)
       await ready.promise
       handler.apply(null, arguments) // eslint-disable-line prefer-spread, prefer-rest-params
     },
