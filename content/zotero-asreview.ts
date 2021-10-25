@@ -200,6 +200,19 @@ class ASReview { // tslint:disable-line:variable-name
     return { rows: [] }
   }
 
+  getRank(item, rows) {
+    const search = [
+      ['DOI', 'doi'],
+      // ['ISSN', 'issn'],
+    ]
+    for (const [ field, column ] of search) {
+      const value = this.get(item, field)
+      const rank = rows.find(row => row[column] === value)?.asreview_ranking
+      if (typeof rank === 'number') return rank
+    }
+    return null
+  }
+
   async updateCollection(collectionID) {
     this.log(`updating collection ${collectionID}`)
     const collection = await Zotero.Collections.getAsync(collectionID)
@@ -217,10 +230,8 @@ class ASReview { // tslint:disable-line:variable-name
 
       for (const item of collection.getChildItems()) {
         if (!item.isRegularItem()) continue
-        const issn = this.get(item, 'ISSN')
-        const doi = this.get(item, 'DOI').replace(/^https?:\/\/doi.org\//i, '')
-        const rank = (ranking.rows.find(row => row.doi === doi) || ranking.rows.find(row => row.issn === issn))?.asreview_ranking
-        if (typeof rank !== 'undefined') this.ranking[collectionID].rank[item.itemID] = rank
+        const rank = this.getRank(item, ranking.rows)
+        if (typeof rank === 'number') this.ranking[collectionID].rank[item.itemID] = rank
       }
     }
   }
