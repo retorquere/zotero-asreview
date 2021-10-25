@@ -39,7 +39,8 @@
   "xpi": {
     "name": "Asreview for Zotero",
     "updateLink": "https://github.com/retorquere/zotero-asreview/releases/download/v{version}/zotero-asreview-{version}.xpi",
-    "releaseURL": "https://github.com/retorquere/zotero-asreview/releases/download/release/"
+    "releaseURL": "https://github.com/retorquere/zotero-asreview/releases/download/release/",
+    "iconURL": "chrome://zotero-asreview/skin/asreview.svg"
   },
   "devDependencies": {
     "bluebird": "^3.7.2",
