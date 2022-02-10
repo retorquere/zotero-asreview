@@ -1,6 +1,6 @@
 {
   "name": "zotero-asreview",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Show ASReview rankings in Zotero",
   "scripts": {
     "lint": "eslint . --ext .ts --cache --cache-location .eslintcache/",
