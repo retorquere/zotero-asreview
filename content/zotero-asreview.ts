@@ -38,26 +38,27 @@ class Deferred<ReturnType> {
 const ready = new Deferred<boolean>()
 
 function celltext(item): string {
-  if (!item.isRegularItem()) return ''
+  try {
+    if (!item.isRegularItem()) return ''
 
-  if (ready.promise.isPending()) return '\u231B'
-  const collection = ZoteroPane_Local.getSelectedCollection()
-  if (!collection) return ''
+    if (ready.promise.isPending()) return '\u231B'
+    const collection = ZoteroPane_Local.getSelectedCollection()
+    if (!collection) return ''
 
-  const rankings = Zotero.ASReview.ranking[collection.id]
-  if (!rankings) return ''
-  const ranking = rankings.rank[item.id]
+    const rankings = Zotero.ASReview.ranking[collection.id]
+    if (!rankings) return ''
+    const ranking = rankings.rank[item.id]
 
-  return typeof ranking === 'undefined' ? '' : `${ranking}`.padStart(5, ' ') // eslint-disable-line @typescript-eslint/no-magic-numbers
+    return typeof ranking === 'undefined' ? '' : `${ranking}`.padStart(5, ' ') // eslint-disable-line @typescript-eslint/no-magic-numbers
+  }
+  catch (err) {
+    Zotero.debug(`asreview getcelltext: ${err.message}`)
+    return '\u26A0'
+  }
 }
 
 patch(Zotero.Item.prototype, 'getField', original => function Zotero_Item_prototype_getField(field: string) {
-  try {
-    if (field === 'asreview') return celltext(this)
-  }
-  catch (err) {
-    Zotero.debug(`asreview monkey-patched getField: ${err.message}`)
-  }
+  if (field === 'asreview') return celltext(this)
 
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   return original.apply(this, arguments) as string // eslint-disable-line prefer-rest-params
@@ -70,7 +71,7 @@ if (typeof Zotero.ItemTreeView === 'undefined') {
     const columns = original.apply(this, arguments) // eslint-disable-line prefer-rest-params
     const insertAfter: number = columns.findIndex(column => column.dataKey === 'title')
     columns.splice(insertAfter + 1, 0, {
-      dataKey: 'citekey',
+      dataKey: 'asreview',
       label: l10n.localize('ZoteroPane.column.asreview'),
       flex: '1',
       zoteroPersist: new Set(['width', 'ordinal', 'hidden', 'sortActive', 'sortDirection']),
@@ -169,6 +170,14 @@ class ASReview { // tslint:disable-line:variable-name
     }
 
     ready.resolve(true)
+
+    const view = Zotero.getActiveZoteroPane().itemsView
+    if (typeof Zotero.ItemTreeView === 'undefined') {
+      view.refreshAndMaintainSelection()
+    }
+    else {
+      await view.refresh()
+    }
   }
 
   log(msg: string) {
